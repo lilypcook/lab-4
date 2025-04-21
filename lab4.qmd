@@ -1,0 +1,339 @@
+---
+title: "Lab 4 Interactive Dashboard - Lily Cook"
+format: 
+  dashboard: 
+    theme: minty
+    orientation: columns
+    nav-buttons: 
+     - icon: github
+       href:  https://github.com/lilypcook/lab-3
+       aria-label: GitHub
+     - icon: linkedin
+       href: https://www.linkedin.com/in/lilypaintoncook/
+       aria-label: LinkedIn
+logo: worldlogo.png
+server: shiny
+---
+
+```{r}
+#| label: libraries
+#| message: false
+
+library(tidyverse)
+library(readxl)
+library(leaflet)
+library(forcats)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(cowplot)
+library(RColorBrewer)
+library(kableExtra)
+```
+
+```{r}
+#| label: data load
+#| message: false
+
+#data.summary <- read_xlsx("wgm2018-dataset-crosstabs-all-countries.xlsx", sheet = 1)
+data.full <- read_xlsx("wgm2018-dataset-crosstabs-all-countries.xlsx", sheet = 2)
+#data.dictionary <- read_xlsx("wgm2018-dataset-crosstabs-all-countries.xlsx", sheet = 3)
+
+country.names <- '1=United States, 2=Egypt, 3=Morocco, 4=Lebanon, 5=Saudi Arabia, 6=Jordan, 8=Turkey, 9=Pakistan, 10=Indonesia, 11=Bangladesh, 12=United Kingdom, 13=France, 14=Germany, 15=Netherlands, 16=Belgium, 17=Spain, 18=Italy, 19=Poland, 20=Hungary, 21=Czech Republic, 22=Romania, 23=Sweden, 24=Greece, 25=Denmark, 26=Iran, 28=Singapore, 29=Japan, 30=China, 31=India, 32=Venezuela, 33=Brazil, 34=Mexico, 35=Nigeria, 36=Kenya, 37=Tanzania, 38=Israel, 39=Palestinian Territories, 40=Ghana, 41=Uganda, 42=Benin, 43=Madagascar, 44=Malawi, 45=South Africa, 46=Canada, 47=Australia, 48=Philippines, 49=Sri Lanka, 50=Vietnam, 51=Thailand, 52=Cambodia, 53=Laos, 54=Myanmar, 55=New Zealand, 57=Botswana, 60=Ethiopia, 61=Mali, 62=Mauritania, 63=Mozambique, 64=Niger, 65=Rwanda, 66=Senegal, 67=Zambia, 68=South Korea, 69=Taiwan, 70=Afghanistan, 71=Belarus, 72=Georgia, 73=Kazakhstan, 74=Kyrgyzstan, 75=Moldova, 76=Russia, 77=Ukraine, 78=Burkina Faso, 79=Cameroon, 80=Sierra Leone, 81=Zimbabwe, 82=Costa Rica, 83=Albania, 84=Algeria, 87=Argentina, 88=Armenia, 89=Austria, 90=Azerbaijan, 96=Bolivia, 97=Bosnia and Herzegovina, 99=Bulgaria, 100=Burundi, 103=Chad, 104=Chile, 105=Colombia, 106=Comoros, 108=Republic of Congo, 109=Croatia, 111=Cyprus, 114=Dominican Republic, 115=Ecuador, 116=El Salvador, 119=Estonia, 121=Finland, 122=Gabon, 124=Guatemala, 125=Guinea, 128=Haiti, 129=Honduras, 130=Iceland, 131=Iraq, 132=Ireland, 134=Ivory Coast, 137=Kuwait, 138=Latvia, 140=Liberia, 141=Libya, 143=Lithuania, 144=Luxembourg, 145=Macedonia, 146=Malaysia, 148=Malta, 150=Mauritius, 153=Mongolia, 154=Montenegro, 155=Namibia, 157=Nepal, 158=Nicaragua, 160=Norway, 163=Panama, 164=Paraguay, 165=Peru, 166=Portugal, 173=Serbia, 175=Slovakia, 176=Slovenia, 183=Eswatini, 184=Switzerland, 185=Tajikistan, 186=The Gambia, 187=Togo, 190=Tunisia, 191=Turkmenistan, 193=United Arab Emirates, 194=Uruguay, 195=Uzbekistan, 197=Yemen, 198=Kosovo, 202=Northern Cyprus' 
+
+country.names <- strsplit(country.names, split = ",")
+country.names <- country.names[[1]]
+country.names <- as_tibble(country.names)
+country.names <- separate_wider_delim(country.names, 
+                                      delim = "=",
+                                      cols = c("value"), 
+                                      names = c("WP5", "country"))
+
+country.names <- country.names %>% mutate(WP5 = as.numeric(WP5))
+data.full <- merge(data.full, country.names, by = "WP5")
+
+region.names <- "0=Not assigned, 1=Eastern Africa,2=Central Africa,3=North Africa,4=Southern Africa,5=Western Africa,6=Central America and Mexico,7=Northern America,8=South America,9=Central Asia,10=East Asia,11=Southeast Asia,12=South Asia,13=Middle East,14=Eastern Europe,15=Northern Europe,16=Southern Europe,17=Western Europe,18=Aus/NZ"
+
+region.names <- strsplit(region.names, split = ",")
+region.names <- region.names[[1]]
+region.names <- as_tibble(region.names)
+region.names <- separate_wider_delim(region.names, 
+                                     delim = "=", 
+                                     cols = c("value"), 
+                                     names = c("Regions_Report", "Region_Name"))
+
+region.names <- region.names %>% mutate(Regions_Report = as.numeric(Regions_Report))
+data.full <- merge(data.full, region.names, by = "Regions_Report")
+
+data.full <- data.full %>% mutate(region = case_when(
+    Regions_Report %in% c(1, 2, 4, 5) ~ "Sub-Saharan Africa",
+    Regions_Report %in% c(6, 7, 8) ~ "Americas",
+    Regions_Report %in% c(9, 10, 11, 12, 18) ~ "Asia",
+    Regions_Report %in% c(3, 13) ~ "Middle East and North Africa",
+    Regions_Report %in% c(15, 16, 17, 0) ~ "Europe",
+    Regions_Report %in% c(14) ~ "Former Soviet Union"
+  ))
+
+
+vaccinepct <- data.full %>% select(country, Q28) %>% drop_na() %>% 
+  group_by(country) %>% 
+  summarise(tot = n(), 
+            totyes = sum(Q28==1), 
+            pctyes = totyes/tot) %>%
+  mutate(pctgroup = case_when(
+    pctyes < 0.7 ~ 1,
+    pctyes >= 0.7 & pctyes < 0.8 ~ 2,
+    pctyes >= 0.8 & pctyes < 0.9 ~ 3,
+    pctyes >= 0.9 & pctyes < 0.95 ~ 4,
+    pctyes >= 0.95 ~ 5
+  ))
+
+
+countrymean <- mean(vaccinepct$pctyes)
+
+
+percents <- data.full %>% select(country, region, Q25) %>% 
+  drop_na() %>%
+  mutate(agree = ifelse(Q25 < 3, 1, 0)) %>% 
+  group_by(country, region) %>%
+  summarise(totagree = sum(agree), 
+            tot = n(), 
+            pctagree = totagree/tot)
+
+medians <- percents %>%
+  group_by(region)%>%
+  summarise(medregion = median(pctagree))
+
+lowcountry <- percents[which(percents$pctagree == min(percents$pctagree)),]$country
+lowpercent <- percents[which(percents$pctagree == min(percents$pctagree)),]$pctagree
+
+highcountry <- percents[which(percents$pctagree == max(percents$pctagree)),]$country
+highpercent <- percents[which(percents$pctagree == max(percents$pctagree)),]$pctagree
+
+USApercent <- percents[which(percents$country == "United States"),]$pctagree
+
+avgpercent <- mean(percents$pctagree)
+
+lowvaxcountry <- vaccinepct[which(vaccinepct$pctyes == min(vaccinepct$pctyes )),]$country
+lowvax <- vaccinepct[which(vaccinepct$pctyes == min(vaccinepct$pctyes )),]$pctyes
+
+highvaxcountry <- vaccinepct[which(vaccinepct$pctyes == max(vaccinepct$pctyes )),]$country
+highvax <- vaccinepct[which(vaccinepct$pctyes == max(vaccinepct$pctyes )),]$pctyes
+
+USAvax <- vaccinepct[which(vaccinepct$country == "United States"),]$pctyes
+
+
+```
+
+# Belief in Vaccines
+
+## Row - quick cards {width="32%"}
+
+### Avg
+
+```{r}
+#| content: valuebox
+#| title: Average Country-Wide Belief in Safety of Vaccines
+#| color: info
+#| icon: globe
+
+list(value = paste(round(avgpercent*100,2), "%"))
+
+```
+
+### Max
+
+```{r}
+#| content: valuebox
+#| title: Belief in Safety of Vaccines in United States
+#| color: secondary
+#| icon: bandaid-fill
+
+list(value = paste(round(USApercent * 100, 2), "%"))
+
+```
+
+### Min
+
+```{r}
+#| content: valuebox
+#| title: Lowest Belief in Safety of Vaccines
+#| color: danger
+#| icon: emoji-frown
+
+list(value = paste(lowcountry, ":" , round(lowpercent * 100, 2), "%"))
+
+```
+
+## Row - Vaccine Visualizations {.tabset width="68%"}
+
+### Distribution
+
+```{r}
+#| label: dot plot
+#| message: false
+
+
+
+percents %>%
+    ggplot() +
+    geom_vline(data = medians, aes(xintercept = medregion), color = "black")+
+    geom_dotplot(aes(x = pctagree, fill = region), 
+                 method = "histodot", 
+                 dotsize = 0.6, 
+                 binwidth = 0.01) +
+    facet_wrap(~region, ncol = 1)+
+    geom_text(aes(x = 0.3, y = 0.5, label = region, color = region), 
+              hjust = "inward", 
+              size =5, 
+              family = "Times",
+              fontface = "bold")+
+    scale_fill_brewer(palette = "Set2") +
+    scale_color_brewer(palette = "Set2")+
+    theme_minimal() +
+    theme(legend.position = "none",
+      panel.grid.major.y = element_blank(),
+      panel.grid.minor.y = element_blank(),
+      axis.text.y = element_blank(),
+      strip.text = element_blank(),
+      text= element_text(family = "Times"),
+      plot.title = element_text(face = "bold")) +
+      scale_x_continuous(labels = scales::percent_format(accuracy = 1))+
+      labs(title = "Percent of people who believe vaccines are safe by country and global region", subtitle = "Black lines represent region median", 
+           x = "", y = "")
+
+  
+
+```
+
+### Medians
+
+```{r}
+#| label: medians
+#| title: Median Country-Wide Belief in Vaccine Safety by Region
+#| message: false
+#| color: secondary
+
+medians %>%
+  mutate(Percent = paste(round(medregion * 100, 2),"%"),
+         Region = region) %>%
+  select(Region, Percent) %>%
+  kable()
+
+```
+
+# Vaccination Rates
+
+## col 1 {width="70%"}
+
+```{r}
+#| title: People who say their children have been vaccinated
+#| message: false
+
+mapdata <-  ne_countries(scale = "medium", returnclass = "sf")
+
+vaccinepct <- vaccinepct %>%
+  mutate(country = case_when(
+    country == "Eswatini" ~ "Kingdom of eSwatini",
+    country == "Ivory Coast" ~ "Côte d'Ivoire",
+    country == "Laos" ~ "Lao PDR",
+    country == "Macedonia" ~ "North Macedonia",
+    country == "Palestinian Territories" ~ "Palestine",
+    country == "Republic of Congo" ~ "Republic of the Congo",
+    country == "Russia" ~ "Russian Federation",
+    country == "South Korea" ~ "Republic of Korea",
+    TRUE ~ country), 
+    name_long = country)
+
+#vaccinepct[which(!(vaccinepct$name_long %in% mapdata$name_long)), 1]
+
+mergedmap <- left_join(mapdata, vaccinepct, by = "name_long")
+
+mergedmap <- mergedmap %>%
+  mutate(pctgroup = case_when(
+    pctyes < 0.7 ~ 1,
+    pctyes >= 0.7 & pctyes < 0.8 ~ 2,
+    pctyes >= 0.8 & pctyes < 0.9 ~ 3,
+    pctyes >= 0.9 & pctyes < 0.95 ~ 4,
+    pctyes >= 0.95 ~ 5,
+    is.na(pctyes) ~ 0),
+    percentlabel = round(pctyes * 100, 2),
+    percentlabel = ifelse(is.na(percentlabel), "Not surveyed", paste(percentlabel,"%")),
+    grouplabel = case_when(
+      pctgroup == 0 ~ "Not surveyed",
+      pctgroup == 1 ~ "Less than 70%",
+      pctgroup == 2 ~ "70% to 79%",
+      pctgroup == 3 ~ "80% to 89%",
+      pctgroup == 4 ~ "90% to 94%",
+      pctgroup == 5 ~ "95% and above"
+    ), 
+    grouplabel = fct_reorder(grouplabel, pctgroup))
+
+mappal <- colorNumeric('RdPu', domain = mergedmap$pctgroup)
+labelpal <- colorFactor('RdPu', domain = mergedmap$grouplabel)
+
+leaflet(mergedmap) %>%
+  addTiles() %>%
+  addPolygons(
+    fillColor = ~ mappal(pctgroup),
+    weight = 1, fillOpacity = 0.7,
+    color = "lightgray",
+    label = ~ paste(name_long, ":", percentlabel)) %>%
+  addLegend(
+    pal = labelpal, values = ~ grouplabel,
+    title = ""
+  )
+  
+
+
+```
+
+## col 2 {width="30%"}
+
+### row 1 {height="33%"}
+
+```{r}
+#| content: valuebox
+#| title: Average Country Vaccination Rate 
+#| color: success
+#| icon: bandaid
+
+list( value = paste(round(countrymean * 100, 2), "%"))
+
+```
+
+### row {.tabset height="67%"}
+
+#### Low
+
+```{r}
+#| content: valuebox
+#| title: Lowest Vaccination Rate
+#| color: info
+#| icon: clipboard-data
+
+list( value = paste(lowvaxcountry, ":", round(lowvax * 100, 2), "%"))
+
+```
+
+#### High
+
+```{r}
+#| content: valuebox
+#| title: Highest Vaccination Rate 
+#| color: warning
+
+list( value = paste("N. Cyprus:", round(highvax * 100, 2), "%"))
+
+```
+
+#### USA
+
+```{r}
+#| content: valuebox
+#| title: US Vaccination Rate 
+#| color: secondary
+#| icon: capsule-pill 
+
+list( value = paste("USA:", round(USAvax * 100, 2), "%"))
+
+```
