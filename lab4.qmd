@@ -11,13 +11,15 @@ format:
      - icon: linkedin
        href: https://www.linkedin.com/in/lilypaintoncook/
        aria-label: LinkedIn
-logo: worldlogo.png
 server: shiny
+logo: worldlogo.png
 ---
 
 ```{r}
 #| label: libraries
 #| message: false
+#| context: setup
+
 
 library(tidyverse)
 library(readxl)
@@ -28,11 +30,13 @@ library(rnaturalearthdata)
 library(cowplot)
 library(RColorBrewer)
 library(kableExtra)
+library(shiny)
 ```
 
 ```{r}
 #| label: data load
 #| message: false
+#| context: setup
 
 #data.summary <- read_xlsx("wgm2018-dataset-crosstabs-all-countries.xlsx", sheet = 1)
 data.full <- read_xlsx("wgm2018-dataset-crosstabs-all-countries.xlsx", sheet = 2)
@@ -126,7 +130,77 @@ USAvax <- vaccinepct[which(vaccinepct$country == "United States"),]$pctyes
 
 # Belief in Vaccines
 
-## Row - quick cards {width="32%"}
+## inputs {.sidebar}
+
+```{r}
+checkboxGroupInput("selected_regions", "Select Regions:",
+                   choices = unique(percents$region),
+                   selected = unique(percents$region))
+
+checkboxInput("show_median", "Show Region Medians", value = TRUE)
+
+```
+
+
+## Distribution {width=80%}
+
+
+```{r}
+#| label: dot plot
+#| message: false
+#| context: server
+
+output$dot_plot <- renderPlot({
+
+  filtered_data <- percents %>%
+    filter(region %in% input$selected_regions)
+  
+  filtered_medians <- medians %>%
+    filter(region %in% input$selected_regions)
+
+  p <- ggplot(filtered_data) +
+    facet_wrap(~region, ncol = 1) +
+    geom_dotplot(aes(x = pctagree, fill = region),
+                 method = "histodot",
+                 dotsize = 0.6,
+                 binwidth = 0.01) +
+    geom_text(aes(x = 0.3, y = 0.5, label = region, color = region),
+              hjust = "inward",
+              size = 7,
+              family = "Times",
+              fontface = "bold") +
+    scale_fill_brewer(palette = "Set2") +
+    scale_color_brewer(palette = "Set2") +
+    theme_minimal() +
+    theme(legend.position = "none",
+          panel.grid.major.y = element_blank(),
+          panel.grid.minor.y = element_blank(),
+          axis.text.y = element_blank(),
+          strip.text = element_blank(),
+          text = element_text(family = "Times"),
+          plot.title = element_text(face = "bold")) +
+    scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
+    labs(
+      title = "Percent of people who believe vaccines are safe by country and global region",
+      subtitle = if (input$show_median) "Black lines represent region median" else "",
+      x = "", y = ""
+    )
+
+  if (input$show_median) {
+    p <- p + geom_vline(data = filtered_medians, aes(xintercept = medregion), color = "black")
+  }
+
+  p
+})
+
+```
+
+
+::: {.cell}
+`r shiny::plotOutput("dot_plot")`
+:::
+
+## Cards {width=20%}
 
 ### Avg
 
@@ -149,191 +223,5 @@ list(value = paste(round(avgpercent*100,2), "%"))
 #| icon: bandaid-fill
 
 list(value = paste(round(USApercent * 100, 2), "%"))
-
-```
-
-### Min
-
-```{r}
-#| content: valuebox
-#| title: Lowest Belief in Safety of Vaccines
-#| color: danger
-#| icon: emoji-frown
-
-list(value = paste(lowcountry, ":" , round(lowpercent * 100, 2), "%"))
-
-```
-
-## Row - Vaccine Visualizations {.tabset width="68%"}
-
-### Distribution
-
-```{r}
-#| label: dot plot
-#| message: false
-
-
-
-percents %>%
-    ggplot() +
-    geom_vline(data = medians, aes(xintercept = medregion), color = "black")+
-    geom_dotplot(aes(x = pctagree, fill = region), 
-                 method = "histodot", 
-                 dotsize = 0.6, 
-                 binwidth = 0.01) +
-    facet_wrap(~region, ncol = 1)+
-    geom_text(aes(x = 0.3, y = 0.5, label = region, color = region), 
-              hjust = "inward", 
-              size =5, 
-              family = "Times",
-              fontface = "bold")+
-    scale_fill_brewer(palette = "Set2") +
-    scale_color_brewer(palette = "Set2")+
-    theme_minimal() +
-    theme(legend.position = "none",
-      panel.grid.major.y = element_blank(),
-      panel.grid.minor.y = element_blank(),
-      axis.text.y = element_blank(),
-      strip.text = element_blank(),
-      text= element_text(family = "Times"),
-      plot.title = element_text(face = "bold")) +
-      scale_x_continuous(labels = scales::percent_format(accuracy = 1))+
-      labs(title = "Percent of people who believe vaccines are safe by country and global region", subtitle = "Black lines represent region median", 
-           x = "", y = "")
-
-  
-
-```
-
-### Medians
-
-```{r}
-#| label: medians
-#| title: Median Country-Wide Belief in Vaccine Safety by Region
-#| message: false
-#| color: secondary
-
-medians %>%
-  mutate(Percent = paste(round(medregion * 100, 2),"%"),
-         Region = region) %>%
-  select(Region, Percent) %>%
-  kable()
-
-```
-
-# Vaccination Rates
-
-## col 1 {width="70%"}
-
-```{r}
-#| title: People who say their children have been vaccinated
-#| message: false
-
-mapdata <-  ne_countries(scale = "medium", returnclass = "sf")
-
-vaccinepct <- vaccinepct %>%
-  mutate(country = case_when(
-    country == "Eswatini" ~ "Kingdom of eSwatini",
-    country == "Ivory Coast" ~ "Côte d'Ivoire",
-    country == "Laos" ~ "Lao PDR",
-    country == "Macedonia" ~ "North Macedonia",
-    country == "Palestinian Territories" ~ "Palestine",
-    country == "Republic of Congo" ~ "Republic of the Congo",
-    country == "Russia" ~ "Russian Federation",
-    country == "South Korea" ~ "Republic of Korea",
-    TRUE ~ country), 
-    name_long = country)
-
-#vaccinepct[which(!(vaccinepct$name_long %in% mapdata$name_long)), 1]
-
-mergedmap <- left_join(mapdata, vaccinepct, by = "name_long")
-
-mergedmap <- mergedmap %>%
-  mutate(pctgroup = case_when(
-    pctyes < 0.7 ~ 1,
-    pctyes >= 0.7 & pctyes < 0.8 ~ 2,
-    pctyes >= 0.8 & pctyes < 0.9 ~ 3,
-    pctyes >= 0.9 & pctyes < 0.95 ~ 4,
-    pctyes >= 0.95 ~ 5,
-    is.na(pctyes) ~ 0),
-    percentlabel = round(pctyes * 100, 2),
-    percentlabel = ifelse(is.na(percentlabel), "Not surveyed", paste(percentlabel,"%")),
-    grouplabel = case_when(
-      pctgroup == 0 ~ "Not surveyed",
-      pctgroup == 1 ~ "Less than 70%",
-      pctgroup == 2 ~ "70% to 79%",
-      pctgroup == 3 ~ "80% to 89%",
-      pctgroup == 4 ~ "90% to 94%",
-      pctgroup == 5 ~ "95% and above"
-    ), 
-    grouplabel = fct_reorder(grouplabel, pctgroup))
-
-mappal <- colorNumeric('RdPu', domain = mergedmap$pctgroup)
-labelpal <- colorFactor('RdPu', domain = mergedmap$grouplabel)
-
-leaflet(mergedmap) %>%
-  addTiles() %>%
-  addPolygons(
-    fillColor = ~ mappal(pctgroup),
-    weight = 1, fillOpacity = 0.7,
-    color = "lightgray",
-    label = ~ paste(name_long, ":", percentlabel)) %>%
-  addLegend(
-    pal = labelpal, values = ~ grouplabel,
-    title = ""
-  )
-  
-
-
-```
-
-## col 2 {width="30%"}
-
-### row 1 {height="33%"}
-
-```{r}
-#| content: valuebox
-#| title: Average Country Vaccination Rate 
-#| color: success
-#| icon: bandaid
-
-list( value = paste(round(countrymean * 100, 2), "%"))
-
-```
-
-### row {.tabset height="67%"}
-
-#### Low
-
-```{r}
-#| content: valuebox
-#| title: Lowest Vaccination Rate
-#| color: info
-#| icon: clipboard-data
-
-list( value = paste(lowvaxcountry, ":", round(lowvax * 100, 2), "%"))
-
-```
-
-#### High
-
-```{r}
-#| content: valuebox
-#| title: Highest Vaccination Rate 
-#| color: warning
-
-list( value = paste("N. Cyprus:", round(highvax * 100, 2), "%"))
-
-```
-
-#### USA
-
-```{r}
-#| content: valuebox
-#| title: US Vaccination Rate 
-#| color: secondary
-#| icon: capsule-pill 
-
-list( value = paste("USA:", round(USAvax * 100, 2), "%"))
 
 ```
