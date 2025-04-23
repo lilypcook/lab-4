@@ -195,10 +195,9 @@ output$dot_plot <- renderPlot({
 
 ```
 
-
-::: {.cell}
-`r shiny::plotOutput("dot_plot")`
-:::
+```{r}
+plotOutput("dot_plot")
+```
 
 ## Cards {width=20%}
 
@@ -225,3 +224,61 @@ list(value = paste(round(avgpercent*100,2), "%"))
 list(value = paste(round(USApercent * 100, 2), "%"))
 
 ```
+
+### icon
+```{r}
+#| content: valuebox
+#| color: success
+#| icon: emoji-smile
+
+list(value = "")
+
+```
+
+# Vaccination Rates
+
+## slider {.sidebar}
+
+```{r}
+
+#| label: slider
+
+
+sliderInput("percent_filter", 
+             label = "Minimum Vaccination Rate (%)", 
+             min = 0, 
+             max = 100, 
+             value = 50, 
+             step = 1)
+
+```
+
+## Table
+
+```{r}
+#| context: server
+output$country_table <- renderTable({
+  req(input$percent_filter)
+  threshold <- input$percent_filter  
+
+  filtered_table <- vaccinepct %>%
+    filter(pctyes * 100 >= threshold) %>%  
+    select(country, pctyes) %>%
+    arrange((pctyes)) %>%
+    rename(Country = country,
+      `Vaccination Rate` = pctyes
+    )
+
+  filtered_table$`Vaccination Rate` <- scales::percent(filtered_table$`Vaccination Rate`, accuracy = 1)
+  
+kable(filtered_table, format = "html", align = "l") %>%
+    kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover", "condensed"))
+})
+
+```
+
+
+```{r}
+tableOutput("country_table")
+```
+
